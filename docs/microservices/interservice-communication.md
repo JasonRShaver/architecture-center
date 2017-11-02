@@ -51,59 +51,40 @@ With these considerations in mind, the development team made the following desig
 
 Notice that delivery events are derived from drone events. For example, when a drone reaches a delivery location and drops off a package, the Delivery service translates this into a DeliveryCompleted event. This is an example of thinking in terms of domain models. As described earlier, Drone Management belongs in a separate bounded context. The drone events convey the physical location of a drone. The delivery events, on the other hand, represent changes in the status of a delivery, which is a different business entity.
 
-## Challenges and considerations
+## Challenges 
 
+Here are some challenges related to interservice communication. Service meshes, described in the next section, are designed to handle many of these challenges.
 
+**Resiliency.** There may be dozens or even hundreds of instances of any given service. In Kubernetes, these instances are deployed as pods. The Kubernetes scheduler is in charge of assigning a node for each pod. Pods may be destroyed and recreated for any number of reasons. It might be a node-level failure, such as a hardware failure or a VM reboot. Or Kubernetes may *evict* a pod because of resource constraints on the node. A pod template may be updated, causing a restart. A container may crash. Two patterns can help make service-to-service network calls more resilient:
 
-Service meshes, described in the next section, are designed to handle some of these challenges.
+- **[Retry](../patterns/retry.md)**. A network call may fail because of a transient fault that is self-correcting. Rather than fail outright, the caller should typically retry the operation a certain number of times, or until a configured time-out period elapses. 
 
-**Retries**. A network call might fail due to a transient fault that is self-correcting. Rather than fail outright, the caller should typically [retry](../patterns/retry.md) the operation a certain number of times, or until a configured time-out period elapses. 
+- **[Circuit Breaker](../patterns/circuit-breaker.md)**. Too many failed requests can cause a bottleneck, as pending requests accumulate in the queue. These blocked requests might hold critical system resources such as memory, threads, database connections, and so on, which can cause cascading failures. The Circuit Breaker pattern can prevent a service from repeatedly trying an operation that is likely to fail. 
 
-**Circuit breaker**. Too many failed requests can cause a bottleneck, as pending requests accumulate in the queue. These blocked requests might hold critical system resources such as memory, threads, database connections, and so on, which can cause cascading failures. The [Circuit Breaker pattern](../patterns/circuit-breaker.md) can prevent a service from repeatedly trying an operation that is likely to fail. 
+**Load balancing**. When service "A" calls service "B", the request must be directed to a particular instance of service "B". In Kubernetes, the `Service` resource type provides a stable IP address for a group of pods. Network traffic to the service's IP address gets forwarded to a pod by means of iptable rules. By default, a random pod is chosen. A service mesh (see below) can provide more intelligent load balancing algorithms based on observed latency or other metrics. 
+
+**Distributed tracing**. A single transaction may span multiple services. That can make it hard to monitor the overall performance and health of the system. Every service can be generating logs and metrics, but if there's no way to tie them together, they are of limited use. The chapter [Logging and monitoring](./logging-monitoring.md) talks more about distribute tracing, but we mention it here as a challenge.
 
 **Service versioning**. When a team deploys a new version of a service, they must avoid breaking any other services or external clients that depend on it. In addition, you might want to run multiple versions of a service side-by-side, and route requests to a particular version. 
 
-**Load balancing**. Generally, you will run more than one instance of a microservice, for availability and scalability. So if service "A" calls service "B", the request must be directed to a particular instance of service "B". In Kubernetes, the `Service` resource type provides a stable IP address for a group of pods. Network traffic to the service's IP address gets forwarded to a pod by means of iptable rules. By default, a random pod is chosen. A service mesh can provide more intelligent load balancing algorithms based on observed latency or other metrics. 
-
 **TLS encryption and mutual TLS authentication**. For security reasons, you may want to encrypt traffic between services with TLS, and use mutual TLS authentication to authenticate callers.
 
-**Distributed tracing**. 
+## Service mesh
 
+A *service mesh* is a software layer that handles service-to-service communication. Service meshes are designed to address many of the concerns listed in the previous section, and to move responsibility for these concerns away from the microservices themselves and into a shared layer. The service mesh acts as a proxy that intercepts network communication between microservices in the cluster. Right now, the two main service mesh options for Kubernetes are Istio and linkerd. Both are evolving rapidly, but some common features of both include:
 
-## How a service mesh can address these challenges
+- Load balancing at the session level, based on observed latencies or number of outstanding requests. This can improve performance over the layer-4 load balancing that is provided by Kubernetes. 
 
-A *service mesh* 
+- Layer-7 routing based on URL path, Host header, API version, or other application-level rules.
 
-Service mesh moves shared functionality out of services in a generalized communication layer. 
+- Retry of failed requests. A service mesh understands HTTP error codes, and can automatically retry failed requests. You can configure that maximum number of retries, along with a timeout period in order to bound the maximum latency. 
 
+- Circuit breaking. If an instance consistently fails requests, the service mesh will temporarily mark it as unavailable. After a backoff period, it will try the instance again. You can configure the circuit breaker based on various criteria, such as the number of consecutive failures,  
 
-linkerd
+- Service mesh captures metrics about interservice calls, such as the request volume, latency histograms, error and success rates, and response sizes. The service mesh also enables distributed tracing by adding correlation information for each hop in a request.
 
-Load balancing at the session level, based on observed latencies or queue size (number of outstanding requests)
+- Mutual TLS Authentication for service-to-service calls.
 
-Layer-7 routing based on URL paths
-
-Rety of failed requests. Service mesh understands 2xx, 4xx, 5xx HTTP error codes. Only if the request is known to be idempotent. Retry budget - Percentage of requests that the service mesh will retry. Timeouts to bound the maximum latency. Backoff algorithm (constant time or jitter - jitter avoids the problem where a number of requests fail at about the same time, and then the same backoff interval is applied to all of the requests, so the retries also happen at about the same time. Adding jitter distributes the retries around a random distribution)  <!-- https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/ -- >
-
-Circuit breaking - If an instance consistently fails requests, the service mesh will temporarily mark it as unavailable. After a backoff period, it will try the instance again. You can configure it based on percentage of failed requests, number of consecutive failures,  
-
-Service mesh captures metrics and enables distributed tracing. 
-
-Mutual TLS Authentication for service-to-service calls.
-
-Distributed tracing - capture latency, retry, and errors for each hop in a request, which can be exported via Zipkin 
-
-Capture metrics for latency, error rates, load balancing statistics. These can be collected by Prometheus
-
-Istio:
-
-Automatic load balancing for HTTP, gRPC, and TCP traffic
-
-Advanced routing rules - route based on version or environment (staging, production)
-
-Fault injection
-
-Active health check
 
 
 

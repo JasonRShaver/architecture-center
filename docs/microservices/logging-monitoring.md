@@ -67,7 +67,7 @@ Use a logging abstraction that you can plug in a pipeline by configuration.
 Handle batching and aggregation in the pipeline, not directly in the app code. Pipeline can also enrich the events with extra information (e.g. correlation ID)
 -->
 
-## Correlation IDs and distributed tracing
+## Distributed tracing
 
 As mentioned, one challenge in microservices is understanding the flow of events across services. A single operation or transaction may involve calls to multiple services. In order reconstruct the entire sequence of steps, each service should propagate a *correlation ID* that acts as a unique identitifer for that operation. The correlation ID enables [distributed tracing](http://microservices.io/patterns/observability/distributed-tracing.html) across services.
 
